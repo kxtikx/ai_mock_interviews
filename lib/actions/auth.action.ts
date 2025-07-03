@@ -85,7 +85,7 @@ export async function setSessionCookie(idToken: string) {
         secure: process.env.NODE_ENV === 'production',
         path: '/',
         sameSite: 'lax'
-    })
+    });
     
 }
 
