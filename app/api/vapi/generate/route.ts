@@ -2,6 +2,7 @@ import { generateText } from 'ai';
 import { google } from "@ai-sdk/google"
 import { getRandomInterviewCover } from "@/lib/utils";
 import { db } from '@/firebase/admin';
+import admin from "firebase-admin";
 
 export async function GET() {
     return Response.json({ success: true, data: 'THANK YOU!' }, { status: 200 });
@@ -11,43 +12,59 @@ export async function POST(request: Request) {
     const { type, role, level, techstack, amount, userid } = await request.json();
 
     try {
-        const { text: questions } = await generateText({
+        /* --------------- 1️⃣  LLM call with strict JSON prompt ---------------- */
+        const { text: raw } = await generateText({
             model: google('gemini-2.0-flash-001'),
-            prompt: `Prepare questions for a job interview ...
-                  The job role is ${role}.
-        The job experience level is ${level}.
-        The tech stack used in the job is: ${techstack}.
-        The focus between behavioural and technical questions should lean towards: ${type}.
-        The amount of questions required is: ${amount}.
-        Please return only the questions, without any additional text.
-        The questions are going to be read by a voice assistant so do not use "/" or "*" or any other special characters which might break the voice assistant.
-        Return the questions formatted like this:
-        ["Question 1", "Question 2", "Question 3"]
-        
-        Thank you! <3
-    `,
+            prompt: `Return ONLY a valid JSON array (no markdown) of interview questions, e.g.
+["Question 1", "Question 2", "Question 3"].
+
+Role: ${role}
+Experience level: ${level}
+Tech stack: ${techstack}
+Focus (behavioural/technical): ${type}
+Total questions: ${amount}
+
+NO extra keys, slashes or asterisks — just the JSON array.`,
         });
 
+        /* --------------- 2️⃣  Safe JSON parse with fallback ------------------- */
+        let questions: string[] = [];
+
+        try {
+            const parsed = JSON.parse(raw.trim());
+            if (Array.isArray(parsed)) questions = parsed;
+            else throw new Error('Not an array');
+        } catch {
+            console.warn('  LLM did not return valid JSON. Storing raw text.');
+            questions = [raw.trim()];
+        }
+
+        if (!role || !level || !techstack || !amount) {
+            return Response.json({
+                success: false,
+                error: "Missing required fields"
+            }, { status: 400 });
+        }
+
+        /* --------------- 3️⃣  Build and store interview ---------------------- */
         const interview = {
-            role: role,
-            type: type,
-            level: level,
-            techstack: techstack.split(","),
-            questions: JSON.parse(questions),
-            userId: userid,
+            role,
+            type,
+            level,
+            techstack: techstack.split(','),
+            amount,
+            questions,
+            ...(userid ? { userId: userid } : {}),     // optional
             finalized: true,
             coverImage: getRandomInterviewCover(),
-            createdAt: new Date().toISOString(),
+            createdAt: admin.firestore.FieldValue.serverTimestamp(),
         };
 
         await db.collection("interviews").add(interview);
 
         return Response.json({ success: true }, { status: 200 });
-
     } catch (error) {
         console.error(error);
-
         return Response.json({ success: false, error }, { status: 500 });
     }
 }
-
