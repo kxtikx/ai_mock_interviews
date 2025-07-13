@@ -16,7 +16,9 @@ export async function POST(request: Request) {
         const { text: raw } = await generateText({
             model: google('gemini-2.0-flash-001'),
             prompt: `Return ONLY a valid JSON array (no markdown) of interview questions, e.g.
-["Question 1", "Question 2", "Question 3"].
+["Question 1", 
+"Question 2", 
+"Question 3"].
 
 Role: ${role}
 Experience level: ${level}
